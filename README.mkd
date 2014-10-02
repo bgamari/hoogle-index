@@ -1,7 +1,8 @@
 # hoogle-index --- Painless local Haddock indexing
 
     $ cabal install hoogle hoogle-index
-	$ hoogle data default -l
 	$ hoogle-index
+	$ hoogle server -l -p 9000
+	$ firefox http://localhost:9000/
 
 Your Hoogle indexes now cover all of the packages locally installed.
