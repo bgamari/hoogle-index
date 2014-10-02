@@ -92,7 +92,7 @@ main = do
       let failedMsg (pkgId, reason) = "  "++show (pkgName pkgId)++"\t"++reason
       putStrLn $ unlines $ map failedMsg failed
 
-    callProcess "hoogle" (["--output=all.hoo", "combine"] ++ map (\(DB db)->db) idxs)
+    callProcess "hoogle" (["--outfile=all.hoo", "combine"] ++ map (\(DB db)->db) idxs)
 
     --installDirs <- defaultInstallDirs buildCompilerFlavor True False
     putStrLn "Place all.hoo in Cabal's datadir"
