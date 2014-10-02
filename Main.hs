@@ -63,6 +63,17 @@ removeTree (PkgTree dir) = removeDirectoryRecursive dir
 -- | A Haddock textbase
 type TextBase = FilePath
 
+-- | Find a pre-installed textbase corresponding to a package (if one exists)
+findTextBase :: InstalledPackageInfo -> IO (Maybe TextBase)
+findTextBase ipkg = do
+    listToMaybe . catMaybes <$> mapM checkDir (haddockHTMLs ipkg)
+  where
+    PackageName name = pkgName $ sourcePackageId ipkg
+    checkDir root = do
+        let path = root </> name++".txt"
+        exists <- doesFileExist path
+        return $ if exists then Just path else Nothing
+
 -- | Build a textbase from source 
 buildTextBase :: PackageName -> PackageTree -> EitherT String IO TextBase
 buildTextBase (PackageName pkg) (PkgTree dir) = do
@@ -89,7 +100,8 @@ indexPackage :: Config -> InstalledPackageInfo -> EitherT String IO Database
 indexPackage cfg ipkg = do
     let pkg = sourcePackageId ipkg
     pkgTree <- fmapLT show $ tryIO $ unpack pkg
-    tb <- buildTextBase (pkgName pkg) pkgTree
+    tb <- liftIO (findTextBase ipkg)
+       >>= maybe (buildTextBase (pkgName pkg) pkgTree) return
     let PackageName name = pkgName pkg
     let dest = outputDir cfg </> name++".txt" :: TextBase
     liftIO $ copyFile tb dest
