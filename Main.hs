@@ -140,4 +140,5 @@ main = do
       putStrLn $ unlines $ map failedMsg failed
 
     combined <- combineDBs idxs
-    runEitherT $ installDB compiler pkgIdx combined
+    res <- runEitherT $ installDB compiler pkgIdx combined
+    either print (const $ return ()) res
