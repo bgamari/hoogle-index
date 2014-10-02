@@ -1,8 +1,32 @@
-# hoogle-index --- Painless local Haddock indexing
+# hoogle-index — Painless local Haddock indexing
+
+`hoogle-index` is a small utility for generating indicies for local
+Hoogle installations.
 
     $ cabal install hoogle hoogle-index
-	$ hoogle-index
+	$ hoogle-index    # this will take a while
 	$ hoogle server -l -p 9000
 	$ firefox http://localhost:9000/
 
 Your Hoogle indexes now cover all of the packages locally installed.
+
+## What it does
+
+First the utility identifies what packages have been installed. We
+traverse these packages in topological order to ensure that Hoogle can
+resolve as many references as possible.
+
+For each package, the utility first checks the package's documentation
+for an existing textbase. While these are provided with some packages
+(e.g. those installed with GHC), in most cases we'll need to generate
+one. To do this we unpack the package source, configure it, and invoke
+Haddock.
+
+With a textbase in hand we can convert this to a Hoogle database.
+After traversing all installed packages these individual databases are
+merged.
+
+## More resources
+
+ * [Hoogle](http://www.haskell.org/haskellwiki/Hoogle)
+ * [Database generation](http://neilmitchell.blogspot.com/2008/08/hoogle-database-generation.html)
