@@ -15,7 +15,7 @@ import System.FilePath
 import Data.Either (partitionEithers)
 import Control.Error
 
-import Distribution.Verbosity (normal)
+import Distribution.Verbosity (Verbosity, normal)
 import Distribution.Simple.Compiler (Compiler (compilerId), compilerFlavor)
 import Distribution.Simple.GHC
 import Distribution.Simple.Program (defaultProgramConfiguration)
@@ -27,12 +27,13 @@ import Distribution.InstalledPackageInfo (InstalledPackageInfo_ (..), InstalledP
 import Distribution.Package (PackageId, PackageName (..), PackageIdentifier (..))
 import qualified Distribution.Simple.InstallDirs as IDirs
 
-verbosity = normal
 -- | Various configuration
 data Config = Config { outputDir :: FilePath
+                     , verbosity :: Verbosity
                      }
 
 config = Config { outputDir = "./hoogle-index"
+                , verbosity = normal
                 }
 
 -- | An unpacked Cabal project
@@ -126,8 +127,11 @@ installDB compiler pkgIdx (DB db) = do
 main :: IO ()
 main = do
     createDirectoryIfMissing True (outputDir config)
-    (compiler, _, progCfg) <- configure verbosity Nothing Nothing defaultProgramConfiguration
-    pkgIdx <- getInstalledPackages verbosity [GlobalPackageDB, UserPackageDB] progCfg
+    (compiler, _, progCfg) <- configure (verbosity config)
+                              Nothing Nothing
+                              defaultProgramConfiguration
+    pkgIdx <- getInstalledPackages (verbosity config)
+              [GlobalPackageDB, UserPackageDB] progCfg
     let pkgs = reverseTopologicalOrder pkgIdx
         maybeIndex :: InstalledPackageInfo -> IO (Either (PackageId, String) Database)
         maybeIndex pkg = runEitherT $ fmapLT (sourcePackageId pkg,)
