@@ -4,6 +4,8 @@ import Control.Monad (forM, when)
 import Control.Monad.IO.Class
 import Control.Applicative
 import Data.Version
+import Data.Ord (comparing)
+import Data.List (sortBy)
 import System.Directory
 import System.Exit
 import System.Process
@@ -13,12 +15,16 @@ import Data.Either (partitionEithers)
 import Control.Error
 
 import Distribution.Verbosity (normal)
+import Distribution.Simple.Compiler (Compiler (compilerId), compilerFlavor)
 import Distribution.Simple.GHC
 import Distribution.Simple.Program (defaultProgramConfiguration)
 import Distribution.Simple.Compiler (PackageDB (..))
-import Distribution.Simple.PackageIndex (reverseTopologicalOrder)
+import Distribution.Simple.PackageIndex ( PackageIndex, lookupPackageName
+                                        , reverseTopologicalOrder)
+import Distribution.System (buildPlatform)
 import Distribution.InstalledPackageInfo (InstalledPackageInfo_ (..), InstalledPackageInfo)
 import Distribution.Package (PackageId, PackageName (..), PackageIdentifier (..))
+import qualified Distribution.Simple.InstallDirs as IDirs
 
 verbosity = normal
 
@@ -83,9 +89,31 @@ data Config = Config { outputDir :: FilePath }
 
 config = Config { outputDir = "./hoogle-index" }
 
+combineDBs :: [Database] -> IO Database
+combineDBs dbs = do
+    let out = "all.hoo"
+    callProcess "hoogle" (["combine", "--outfile="++out] ++ map (\(DB db)->db) dbs)
+    return (DB out)
+
+installDB :: Compiler -> PackageIndex -> Database -> EitherT String IO ()
+installDB compiler pkgIdx (DB db) = do
+    hooglePkg <- case sortBy (comparing fst) $ lookupPackageName pkgIdx (PackageName "hoogle") of
+                      (_, (pkg:_)):_ -> return pkg
+                      _              -> left "Hoogle not installed"
+    template <- liftIO $ IDirs.defaultInstallDirs (compilerFlavor compiler) True False
+    let installDirs = IDirs.absoluteInstallDirs (sourcePackageId hooglePkg)
+                                                (compilerId compiler)
+                                                IDirs.NoCopyDest
+                                                buildPlatform template
+
+    let dbDir = IDirs.datadir installDirs </> "databases"
+        dest = dbDir </> "default.hoo"
+    liftIO $ copyFile db dest
+    liftIO $ putStrLn $ "Installed Hoogle index to "++dest
+
 main = do
     createDirectoryIfMissing True (outputDir config)
-    (_, _, progCfg) <- configure verbosity Nothing Nothing defaultProgramConfiguration
+    (compiler, _, progCfg) <- configure verbosity Nothing Nothing defaultProgramConfiguration
     pkgIdx <- getInstalledPackages verbosity [GlobalPackageDB, UserPackageDB] progCfg
     let pkgs = reverseTopologicalOrder pkgIdx
         maybeIndex :: InstalledPackageInfo -> IO (Either (PackageId, String) Database)
@@ -98,7 +126,5 @@ main = do
       let failedMsg (pkgId, reason) = "  "++show (pkgName pkgId)++"\t"++reason
       putStrLn $ unlines $ map failedMsg failed
 
-    callProcess "hoogle" (["--outfile=all.hoo", "combine"] ++ map (\(DB db)->db) idxs)
-
-    --installDirs <- defaultInstallDirs buildCompilerFlavor True False
-    putStrLn "Place all.hoo in Cabal's datadir"
+    combined <- combineDBs idxs
+    runEitherT $ installDB compiler pkgIdx combined
