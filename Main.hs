@@ -4,6 +4,7 @@ import Control.Monad (forM, when)
 import Control.Monad.IO.Class
 import Control.Applicative
 import Data.Version
+import Data.Maybe (listToMaybe)
 import Data.Ord (comparing)
 import Data.List (sortBy)
 import System.Directory
@@ -27,10 +28,18 @@ import Distribution.Package (PackageId, PackageName (..), PackageIdentifier (..)
 import qualified Distribution.Simple.InstallDirs as IDirs
 
 verbosity = normal
+-- | Various configuration
+data Config = Config { outputDir :: FilePath
+                     }
 
+config = Config { outputDir = "./hoogle-index"
+                }
+
+-- | An unpacked Cabal project
 newtype PackageTree = PkgTree FilePath
                     deriving (Show)
 
+-- | Call a package from the given directory
 callProcessIn :: FilePath -> FilePath -> [String] -> EitherT String IO ()
 callProcessIn dir exec args = do
     let cp = (proc exec args) { cwd = Just dir }
@@ -40,16 +49,20 @@ callProcessIn dir exec args = do
       ExitSuccess -> return ()
       ExitFailure e -> left $ "Process "++exec++" failed with error "++show e
 
+-- | Unpack a package
 unpack :: PackageId -> IO PackageTree
 unpack (PackageIdentifier (PackageName pkg) ver) = do
     callProcess "cabal" ["unpack", pkg++"=="++showVersion ver]
     return $ PkgTree $ pkg++"-"++showVersion ver
 
+-- | Remove an unpacked tree
 removeTree :: PackageTree -> IO ()
 removeTree (PkgTree dir) = removeDirectoryRecursive dir
 
+-- | A Haddock textbase
 type TextBase = FilePath
 
+-- | Build a textbase from source 
 buildTextBase :: PackageName -> PackageTree -> EitherT String IO TextBase
 buildTextBase (PackageName pkg) (PkgTree dir) = do
     callProcessIn dir "cabal" ["configure"]
@@ -58,9 +71,11 @@ buildTextBase (PackageName pkg) (PkgTree dir) = do
     liftIO $ doesFileExist path
     return $ path
 
+-- | A Hoogle database
 newtype Database = DB FilePath
                  deriving (Show)
 
+-- | Convert a textbase to a Hoogle database        
 convert :: TextBase -> Maybe FilePath -> [Database] -> EitherT String IO Database
 convert tb docRoot merge = do
     let docRoot' = maybe [] (\d->["--doc="++d]) docRoot
@@ -68,6 +83,7 @@ convert tb docRoot merge = do
     fmapLT show $ tryIO $ callProcess "hoogle" args
     return $ DB $ replaceExtension tb ".hoo"
 
+-- | Generate a Hoogle database for an installed package
 indexPackage :: Config -> InstalledPackageInfo -> EitherT String IO Database
 indexPackage cfg ipkg = do
     let pkg = sourcePackageId ipkg
@@ -77,24 +93,20 @@ indexPackage cfg ipkg = do
     let dest = outputDir cfg </> name++".txt" :: TextBase
     liftIO $ copyFile tb dest
 
-    let docRoot = case haddockHTMLs ipkg of
-                      root:_ -> Just root
-                      []     -> Nothing
+    let docRoot = listToMaybe $ haddockHTMLs ipkg
     db <- convert dest docRoot []
 
     liftIO $ removeTree pkgTree
     return db
 
-data Config = Config { outputDir :: FilePath }
-
-config = Config { outputDir = "./hoogle-index" }
-
+-- | Combine Hoogle databases
 combineDBs :: [Database] -> IO Database
 combineDBs dbs = do
     let out = "all.hoo"
     callProcess "hoogle" (["combine", "--outfile="++out] ++ map (\(DB db)->db) dbs)
     return (DB out)
 
+-- | Install a database in Hoogle's database directory
 installDB :: Compiler -> PackageIndex -> Database -> EitherT String IO ()
 installDB compiler pkgIdx (DB db) = do
     hooglePkg <- case sortBy (comparing fst) $ lookupPackageName pkgIdx (PackageName "hoogle") of
@@ -111,6 +123,7 @@ installDB compiler pkgIdx (DB db) = do
     liftIO $ copyFile db dest
     liftIO $ putStrLn $ "Installed Hoogle index to "++dest
 
+main :: IO ()
 main = do
     createDirectoryIfMissing True (outputDir config)
     (compiler, _, progCfg) <- configure verbosity Nothing Nothing defaultProgramConfiguration
