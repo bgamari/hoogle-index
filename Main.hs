@@ -72,7 +72,7 @@ indexPackage cfg ipkg = do
     liftIO $ copyFile tb dest
 
     let docRoot = case haddockHTMLs ipkg of
-                      root:_ -> Just $ root </> "index.html"
+                      root:_ -> Just root
                       []     -> Nothing
     db <- convert dest docRoot []
 
