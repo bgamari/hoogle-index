@@ -55,9 +55,10 @@ buildTextBase (PackageName pkg) (PkgTree dir) = do
 newtype Database = DB FilePath
                  deriving (Show)
 
-convert :: TextBase -> [Database] -> EitherT String IO Database
-convert tb merge = do
-    let args = ["convert", tb]++map (\(DB db)->"--merge="++db) merge
+convert :: TextBase -> Maybe FilePath -> [Database] -> EitherT String IO Database
+convert tb docRoot merge = do
+    let docRoot' = maybe [] (\d->["--doc="++d]) docRoot
+    let args = ["convert", tb, "--haddock"]++docRoot'++map (\(DB db)->"--merge="++db) merge
     fmapLT show $ tryIO $ callProcess "hoogle" args
     return $ DB $ replaceExtension tb ".hoo"
 
@@ -69,7 +70,12 @@ indexPackage cfg ipkg = do
     let PackageName name = pkgName pkg
     let dest = outputDir cfg </> name++".txt" :: TextBase
     liftIO $ copyFile tb dest
-    db <- convert dest []
+
+    let docRoot = case haddockHTMLs ipkg of
+                      root:_ -> Just $ root </> "index.html"
+                      []     -> Nothing
+    db <- convert dest docRoot []
+
     liftIO $ removeTree pkgTree
     return db
 
