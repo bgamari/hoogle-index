@@ -1,0 +1,7 @@
+# hoogle-index --- Painless local Haddock indexing
+
+    $ cabal install hoogle hoogle-index
+	$ hoogle data default -l
+	$ hoogle-index
+
+Your Hoogle indexes now cover all of the packages locally installed.
