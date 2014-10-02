@@ -3,7 +3,7 @@
 import Control.Monad (forM, when)
 import Control.Monad.IO.Class
 import Control.Applicative
-import Data.Version                
+import Data.Version
 import System.Directory
 import System.Exit
 import System.Process
@@ -63,7 +63,7 @@ convert tb merge = do
 
 indexPackage :: Config -> InstalledPackageInfo -> EitherT String IO Database
 indexPackage cfg ipkg = do
-    let pkg = sourcePackageId ipkg             
+    let pkg = sourcePackageId ipkg
     pkgTree <- fmapLT show $ tryIO $ unpack pkg
     tb <- buildTextBase (pkgName pkg) pkgTree
     let PackageName name = pkgName pkg
@@ -91,8 +91,8 @@ main = do
       putStrLn "Failed to build the following indexes:"
       let failedMsg (pkgId, reason) = "  "++show (pkgName pkgId)++"\t"++reason
       putStrLn $ unlines $ map failedMsg failed
-      
+
     callProcess "hoogle" (["--output=all.hoo", "combine"] ++ map (\(DB db)->db) idxs)
-    
+
     --installDirs <- defaultInstallDirs buildCompilerFlavor True False
     putStrLn "Place all.hoo in Cabal's datadir"
