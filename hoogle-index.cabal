@@ -1,5 +1,5 @@
 name:                hoogle-index
-version:             0.1
+version:             0.2
 synopsis:            Easily generate Hoogle indices for installed packages
 description:         Easily generate Hoogle indices for installed packages
 homepage:            http://github.com/bgamari/hoogle-index
