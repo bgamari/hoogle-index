@@ -34,14 +34,16 @@ import Distribution.Package (PackageId, PackageName (..), PackageIdentifier (..)
 import qualified Distribution.Simple.InstallDirs as IDirs
 
 -- | Various configuration
-data Config = Config { verbosity       :: Verbosity
-                     , installTextBase :: Bool
-                     , useLocalDocs    :: Bool
+data Config = Config { verbosity               :: Verbosity
+                     , installTextBase         :: Bool
+                     , useLocalDocs            :: Bool
+                     , ignoreExistingTextBases :: Bool
                      }
 
-config = Config { verbosity       = normal
-                , installTextBase = True
-                , useLocalDocs    = True
+config = Config { verbosity               = normal
+                , installTextBase         = True
+                , useLocalDocs            = True
+                , ignoreExistingTextBases = False
                 }
 
 -- | An unpacked Cabal project
@@ -105,7 +107,9 @@ buildTextBase (PackageName pkg) (PkgTree dir) = do
 
 getTextBase :: Config -> InstalledPackageInfo -> EitherT String IO TextBase
 getTextBase cfg ipkg = do
-    existing <- liftIO $ findTextBase ipkg
+    existing <- if ignoreExistingTextBases cfg
+                  then return Nothing
+                  else liftIO $ findTextBase ipkg
     case existing of
       Just path -> TextBase <$> liftIO (BS.readFile path)
       Nothing -> do
