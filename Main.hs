@@ -141,10 +141,13 @@ removeDB (DB path) = removeFile path
 convert :: TextBaseFile -> Maybe FilePath -> [Database] -> EitherT String IO Database
 convert tbf docRoot merge = do
     let docRoot' = maybe [] (\d->["--haddock", "--doc="++d]) docRoot
-    let args = ["convert", tbf] ++ docRoot'
+    (tb,h) <- liftIO $ openTempFile "/tmp" "db.hoo"
+    liftIO $ hClose h
+    let args = ["convert", tbf, tb] ++ docRoot'
                ++ map (\(DB db)->"--merge="++db) merge
+
     fmapLT show $ tryIO $ callProcess "hoogle" args
-    return $ DB $ replaceExtension tbf ".hoo"
+    return $ DB tb
 
 -- | Generate a Hoogle database for an installed package
 indexPackage :: Config -> InstalledPackageInfo -> EitherT String IO Database
