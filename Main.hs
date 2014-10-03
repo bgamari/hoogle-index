@@ -33,14 +33,12 @@ import Distribution.Package (PackageId, PackageName (..), PackageIdentifier (..)
 import qualified Distribution.Simple.InstallDirs as IDirs
 
 -- | Various configuration
-data Config = Config { outputDir       :: FilePath
-                     , verbosity       :: Verbosity
+data Config = Config { verbosity       :: Verbosity
                      , installTextBase :: Bool
                      , useLocalDocs    :: Bool
                      }
 
-config = Config { outputDir       = "./hoogle-index"
-                , verbosity       = normal
+config = Config { verbosity       = normal
                 , installTextBase = True
                 , useLocalDocs    = True
                 }
@@ -180,7 +178,6 @@ installDB compiler pkgIdx (DB db) = do
 
 main :: IO ()
 main = do
-    createDirectoryIfMissing True (outputDir config)
     (compiler, _, progCfg) <- configure (verbosity config)
                               Nothing Nothing
                               defaultProgramConfiguration
