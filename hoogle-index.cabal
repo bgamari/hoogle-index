@@ -25,5 +25,6 @@ executable hoogle-index
                        process >=1.2 && <1.3,
                        filepath >=1.3 && <1.4,
                        errors >=1.4 && <1.5,
+                       bytestring >=0.9 && <1.11,
                        Cabal >=1.20 && <1.21
   default-language:    Haskell2010

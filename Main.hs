@@ -11,9 +11,12 @@ import System.Directory
 import System.Exit
 import System.Process
 import System.FilePath
+import System.IO
 
 import Data.Either (partitionEithers)
 import Control.Error
+
+import qualified Data.ByteString.Char8 as BS
 
 import Distribution.Verbosity (Verbosity, normal)
 import Distribution.Simple.Compiler (Compiler (compilerId), compilerFlavor)
@@ -21,7 +24,9 @@ import Distribution.Simple.GHC
 import Distribution.Simple.Program (defaultProgramConfiguration)
 import Distribution.Simple.Compiler (PackageDB (..))
 import Distribution.Simple.PackageIndex ( PackageIndex, lookupPackageName
-                                        , reverseTopologicalOrder)
+                                        , reverseTopologicalOrder
+                                        , searchByNameSubstring
+                                        )
 import Distribution.System (buildPlatform)
 import Distribution.InstalledPackageInfo (InstalledPackageInfo_ (..), InstalledPackageInfo)
 import Distribution.Package (PackageId, PackageName (..), PackageIdentifier (..))
@@ -30,10 +35,12 @@ import qualified Distribution.Simple.InstallDirs as IDirs
 -- | Various configuration
 data Config = Config { outputDir :: FilePath
                      , verbosity :: Verbosity
+                     , installTextBase :: Bool
                      }
 
 config = Config { outputDir = "./hoogle-index"
                 , verbosity = normal
+                , installTextBase = True
                 }
 
 -- | An unpacked Cabal project
@@ -61,55 +68,82 @@ removeTree :: PackageTree -> IO ()
 removeTree (PkgTree dir) = removeDirectoryRecursive dir
 
 -- | A Haddock textbase
-type TextBase = FilePath
+newtype TextBase = TextBase BS.ByteString
+
+-- | Write a Haddock textbase to a file
+writeTextBase :: TextBase -> FilePath -> IO ()
+writeTextBase (TextBase content) path = BS.writeFile path content
+
+-- | A file containing a Haddock textbase
+type TextBaseFile = FilePath
 
 -- | Find a pre-installed textbase corresponding to a package (if one exists)
-findTextBase :: InstalledPackageInfo -> IO (Maybe TextBase)
+findTextBase :: InstalledPackageInfo -> IO (Maybe TextBaseFile)
 findTextBase ipkg = do
     listToMaybe . catMaybes <$> mapM checkDir (haddockHTMLs ipkg)
   where
     PackageName name = pkgName $ sourcePackageId ipkg
     checkDir root = do
         let path = root </> name++".txt"
+        putStrLn $ "Looking for "++path
         exists <- doesFileExist path
-        return $ if exists then Just path else Nothing
+        if exists
+          then return $ Just path
+          else return Nothing
 
--- | Build a textbase from source 
+-- | Build a textbase from source
 buildTextBase :: PackageName -> PackageTree -> EitherT String IO TextBase
 buildTextBase (PackageName pkg) (PkgTree dir) = do
     callProcessIn dir "cabal" ["configure"]
     callProcessIn dir "runghc" ["Setup", "haddock", "--hoogle"]
     let path = dir </> "dist" </> "doc" </> "html" </> pkg </> (pkg++".txt")
-    liftIO $ doesFileExist path
-    return $ path
+    TextBase <$> liftIO (BS.readFile path)
+
+getTextBase :: Config -> InstalledPackageInfo -> EitherT String IO TextBase
+getTextBase cfg ipkg = do
+    existing <- liftIO $ findTextBase ipkg
+    case existing of
+      Just path -> TextBase <$> liftIO (BS.readFile path)
+      Nothing -> do
+        pkgTree <- fmapLT show $ tryIO $ unpack pkg
+        tb <- buildTextBase (pkgName pkg) pkgTree
+        liftIO $ removeTree pkgTree
+
+        -- install textbase if necessary
+        case listToMaybe $ haddockHTMLs ipkg of
+          Just docRoot | installTextBase cfg -> do
+            let TextBase content = tb
+                PackageName name = pkgName $ sourcePackageId ipkg
+                tbPath = docRoot </> name++".txt"
+            liftIO $ BS.writeFile tbPath content
+        return tb
+  where
+    pkg = sourcePackageId ipkg
 
 -- | A Hoogle database
 newtype Database = DB FilePath
                  deriving (Show)
 
--- | Convert a textbase to a Hoogle database        
-convert :: TextBase -> Maybe FilePath -> [Database] -> EitherT String IO Database
-convert tb docRoot merge = do
+-- | Convert a textbase to a Hoogle database
+convert :: TextBaseFile -> Maybe FilePath -> [Database] -> EitherT String IO Database
+convert tbf docRoot merge = do
     let docRoot' = maybe [] (\d->["--doc="++d]) docRoot
-    let args = ["convert", tb, "--haddock"]++docRoot'++map (\(DB db)->"--merge="++db) merge
+    let args = ["convert", tbf, "--haddock"]++docRoot'
+               ++map (\(DB db)->"--merge="++db) merge
     fmapLT show $ tryIO $ callProcess "hoogle" args
-    return $ DB $ replaceExtension tb ".hoo"
+    return $ DB $ replaceExtension tbf ".hoo"
 
 -- | Generate a Hoogle database for an installed package
 indexPackage :: Config -> InstalledPackageInfo -> EitherT String IO Database
 indexPackage cfg ipkg = do
     let pkg = sourcePackageId ipkg
-    pkgTree <- fmapLT show $ tryIO $ unpack pkg
-    tb <- liftIO (findTextBase ipkg)
-       >>= maybe (buildTextBase (pkgName pkg) pkgTree) return
-    let PackageName name = pkgName pkg
-    let dest = outputDir cfg </> name++".txt" :: TextBase
-    liftIO $ copyFile tb dest
-
+    tb <- getTextBase cfg ipkg
     let docRoot = listToMaybe $ haddockHTMLs ipkg
-    db <- convert dest docRoot []
-
-    liftIO $ removeTree pkgTree
+    (tbf,h) <- liftIO $ openTempFile "/tmp" "textbase.txt"
+    liftIO $ hClose h
+    liftIO $ writeTextBase tb tbf
+    db <- convert tbf docRoot []
+    liftIO $ removeFile tbf
     return db
 
 -- | Combine Hoogle databases
