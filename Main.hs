@@ -163,7 +163,9 @@ indexPackage cfg ipkg = do
 -- | Combine Hoogle databases
 combineDBs :: [Database] -> IO Database
 combineDBs dbs = do
-    let out = "all.hoo"
+    tmpDir <- getTemporaryDirectory
+    (out, h) <- openTempFile tmpDir "combined.hoo"
+    hClose h
     callProcess "hoogle" (["combine", "--outfile="++out] ++ map (\(DB db)->db) dbs)
     return (DB out)
 
