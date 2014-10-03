@@ -3,10 +3,12 @@
 `hoogle-index` is a small utility for generating indicies for local
 Hoogle installations.
 
-    $ cabal install hoogle hoogle-index
-	$ hoogle-index    # this will take a while
-	$ hoogle server -l -p 9000
-	$ firefox http://localhost:9000/
+```bash
+$ cabal install hoogle hoogle-index
+$ hoogle-index    # this will take a while
+$ hoogle server -l -p 9000
+$ firefox http://localhost:9000/
+```
 
 Your Hoogle indexes now cover all of the packages locally installed.
 
