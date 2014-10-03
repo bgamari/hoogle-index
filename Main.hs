@@ -33,14 +33,16 @@ import Distribution.Package (PackageId, PackageName (..), PackageIdentifier (..)
 import qualified Distribution.Simple.InstallDirs as IDirs
 
 -- | Various configuration
-data Config = Config { outputDir :: FilePath
-                     , verbosity :: Verbosity
+data Config = Config { outputDir       :: FilePath
+                     , verbosity       :: Verbosity
                      , installTextBase :: Bool
+                     , useLocalDocs    :: Bool
                      }
 
-config = Config { outputDir = "./hoogle-index"
-                , verbosity = normal
+config = Config { outputDir       = "./hoogle-index"
+                , verbosity       = normal
                 , installTextBase = True
+                , useLocalDocs    = True
                 }
 
 -- | An unpacked Cabal project
@@ -128,9 +130,9 @@ newtype Database = DB FilePath
 -- | Convert a textbase to a Hoogle database
 convert :: TextBaseFile -> Maybe FilePath -> [Database] -> EitherT String IO Database
 convert tbf docRoot merge = do
-    let docRoot' = maybe [] (\d->["--doc="++d]) docRoot
-    let args = ["convert", tbf, "--haddock"]++docRoot'
-               ++map (\(DB db)->"--merge="++db) merge
+    let docRoot' = maybe [] (\d->["--haddock", "--doc="++d]) docRoot
+    let args = ["convert", tbf] ++ docRoot'
+               ++ map (\(DB db)->"--merge="++db) merge
     fmapLT show $ tryIO $ callProcess "hoogle" args
     return $ DB $ replaceExtension tbf ".hoo"
 
@@ -139,7 +141,12 @@ indexPackage :: Config -> InstalledPackageInfo -> EitherT String IO Database
 indexPackage cfg ipkg = do
     let pkg = sourcePackageId ipkg
     tb <- getTextBase cfg ipkg
-    let docRoot = listToMaybe $ haddockHTMLs ipkg
+    docRoot <- case haddockHTMLs ipkg of
+                   docRoot:_ | useLocalDocs cfg -> Just docRoot 
+                   []        | useLocalDocs cfg -> do
+                     putStrLn $ "No local documentation for "++pkg
+                     return Nothing
+                   _ -> return Nothing
     (tbf,h) <- liftIO $ openTempFile "/tmp" "textbase.txt"
     liftIO $ hClose h
     liftIO $ writeTextBase tb tbf
