@@ -22,7 +22,8 @@ For each package, the utility first checks the package's documentation
 for an existing textbase. While these are provided with some packages
 (e.g. those installed with GHC), in most cases we'll need to generate
 one. To do this we unpack the package source, configure it, and invoke
-Haddock.
+Haddock. To avoid needing regenerate this file in future runs we also
+install the resulting textbase in the appropriate spot in `~/.cabal`.
 
 With a textbase in hand we can convert this to a Hoogle database.
 After traversing all installed packages these individual databases are
