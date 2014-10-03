@@ -129,6 +129,10 @@ getTextBase cfg ipkg = do
 newtype Database = DB FilePath
                  deriving (Show)
 
+-- | Delete a database file
+removeDB :: Database -> IO ()
+removeDB (DB path) = removeFile path
+
 -- | Convert a textbase to a Hoogle database
 convert :: TextBaseFile -> Maybe FilePath -> [Database] -> EitherT String IO Database
 convert tbf docRoot merge = do
@@ -199,5 +203,6 @@ main = do
       putStrLn $ unlines $ map failedMsg failed
 
     combined <- combineDBs idxs
+    mapM_ removeDB idxs
     res <- runEitherT $ installDB compiler pkgIdx combined
     either print (const $ return ()) res
