@@ -17,6 +17,7 @@ import Data.Either (partitionEithers)
 import Control.Error
 
 import qualified Data.ByteString.Char8 as BS
+import System.IO.Temp
 
 import Distribution.Verbosity (Verbosity, normal)
 import Distribution.Simple.Compiler (Compiler (compilerId), compilerFlavor)
@@ -58,14 +59,17 @@ callProcessIn dir exec args = do
       ExitFailure e -> left $ "Process "++exec++" failed with error "++show e
 
 -- | Unpack a package
-unpack :: PackageId -> IO PackageTree
+unpack :: PackageId -> EitherT String IO PackageTree
 unpack (PackageIdentifier (PackageName pkg) ver) = do
-    callProcess "cabal" ["unpack", pkg++"=="++showVersion ver]
-    return $ PkgTree $ pkg++"-"++showVersion ver
+    tmpDir <- liftIO getTemporaryDirectory
+    dir <- liftIO $ createTempDirectory tmpDir "hoogle-index.pkg"
+    callProcessIn dir "cabal" ["unpack", pkg++"=="++showVersion ver]
+    return $ PkgTree $ dir </> pkg++"-"++showVersion ver
 
 -- | Remove an unpacked tree
 removeTree :: PackageTree -> IO ()
-removeTree (PkgTree dir) = removeDirectoryRecursive dir
+removeTree (PkgTree dir) =
+    removeDirectoryRecursive $ takeDirectory dir
 
 -- | A Haddock textbase
 newtype TextBase = TextBase BS.ByteString
@@ -105,7 +109,7 @@ getTextBase cfg ipkg = do
     case existing of
       Just path -> TextBase <$> liftIO (BS.readFile path)
       Nothing -> do
-        pkgTree <- fmapLT show $ tryIO $ unpack pkg
+        pkgTree <- unpack pkg
         tb <- buildTextBase (pkgName pkg) pkgTree
         liftIO $ removeTree pkgTree
 
@@ -140,9 +144,9 @@ indexPackage cfg ipkg = do
     let pkg = sourcePackageId ipkg
     tb <- getTextBase cfg ipkg
     docRoot <- case haddockHTMLs ipkg of
-                   docRoot:_ | useLocalDocs cfg -> Just docRoot 
+                   docRoot:_ | useLocalDocs cfg -> return $ Just docRoot
                    []        | useLocalDocs cfg -> do
-                     putStrLn $ "No local documentation for "++pkg
+                     liftIO $ putStrLn $ "No local documentation for "++show pkg
                      return Nothing
                    _ -> return Nothing
     (tbf,h) <- liftIO $ openTempFile "/tmp" "textbase.txt"
