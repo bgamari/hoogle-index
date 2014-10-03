@@ -115,6 +115,7 @@ getTextBase cfg ipkg = do
             let TextBase content = tb
                 PackageName name = pkgName $ sourcePackageId ipkg
                 tbPath = docRoot </> name++".txt"
+            liftIO $ putStrLn $ "Installing textbase to "++tbPath
             liftIO $ BS.writeFile tbPath content
         return tb
   where
