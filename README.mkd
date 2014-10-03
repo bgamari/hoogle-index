@@ -10,7 +10,7 @@ $ hoogle server -l -p 9000
 $ firefox http://localhost:9000/
 ```
 
-Your Hoogle indexes now cover all of the packages locally installed.
+Your Hoogle index now covers all of the packages locally installed.
 
 ## What it does
 
