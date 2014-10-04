@@ -12,6 +12,9 @@ $ firefox http://localhost:9000/
 
 Your Hoogle index now covers all of the packages locally installed.
 
+`hoogle-index` also takes a few command line arguments. One index
+cabal sandboxes by passing the `-f /path/to/.cabal-sandbox`
+
 ## What it does
 
 First the utility identifies what packages have been installed. We
