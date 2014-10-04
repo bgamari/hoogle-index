@@ -16,10 +16,12 @@ import System.IO
 import Data.Either (partitionEithers)
 import Control.Error
 
+import Options.Applicative
+
 import qualified Data.ByteString.Char8 as BS
 import System.IO.Temp
 
-import Distribution.Verbosity (Verbosity, normal)
+import Distribution.Verbosity (Verbosity, normal, verbose)
 import Distribution.Simple.Compiler (Compiler (compilerId), compilerFlavor)
 import Distribution.Simple.GHC
 import Distribution.Simple.Program (defaultProgramConfiguration)
@@ -40,11 +42,23 @@ data Config = Config { verbosity               :: Verbosity
                      , ignoreExistingTextBases :: Bool
                      }
 
-config = Config { verbosity               = normal
-                , installTextBase         = True
-                , useLocalDocs            = True
-                , ignoreExistingTextBases = False
-                }
+opts =
+    Config <$> flag normal verbose
+               ( short 'v' <> long "verbose"
+              <> help "Enable verbose output"
+               )
+           <*> switch
+               ( short 'i' <> long "install"
+              <> help "Install generated textbases for future use"
+               )
+           <*> switch
+               ( short 'l' <> long "local"
+              <> help "Use local Haddock documentation when available"
+               )
+           <*> switch
+               ( long "ignore-existing"
+              <> help "Always regenerate textbases even if one already exists"
+               )
 
 -- | An unpacked Cabal project
 newtype PackageTree = PkgTree FilePath
@@ -195,6 +209,13 @@ installDB compiler pkgIdx (DB db) = do
 
 main :: IO ()
 main = do
+    config <- execParser
+        $ info (helper <*> opts)
+               ( fullDesc
+              <> progDesc "Generate Hoogle indexes for locally install packages"
+              <> header "hoogle-index - Painless local Hoogle indexing"
+               )
+
     (compiler, _, progCfg) <- configure (verbosity config)
                               Nothing Nothing
                               defaultProgramConfiguration
