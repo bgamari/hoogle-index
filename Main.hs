@@ -40,6 +40,7 @@ data Config = Config { verbosity               :: Verbosity
                      , installTextBase         :: Bool
                      , useLocalDocs            :: Bool
                      , ignoreExistingTextBases :: Bool
+                     , otherPackageDbs         :: [PackageDB]
                      }
 
 opts =
@@ -59,6 +60,10 @@ opts =
                ( long "ignore-existing"
               <> help "Always regenerate textbases even if one already exists"
                )
+           <*> many (option (fmap SpecificPackageDB . pure)
+               ( short 'f' <> long "package-db"
+              <> help "Add an addition package database (e.g. a Cabal sandbox)"
+               ))
 
 -- | An unpacked Cabal project
 newtype PackageTree = PkgTree FilePath
@@ -219,8 +224,8 @@ main = do
     (compiler, _, progCfg) <- configure (verbosity config)
                               Nothing Nothing
                               defaultProgramConfiguration
-    pkgIdx <- getInstalledPackages (verbosity config)
-              [GlobalPackageDB, UserPackageDB] progCfg
+    let pkgDbs = [GlobalPackageDB, UserPackageDB] ++ otherPackageDbs config
+    pkgIdx <- getInstalledPackages (verbosity config) pkgDbs progCfg
     let pkgs = reverseTopologicalOrder pkgIdx
         maybeIndex :: InstalledPackageInfo -> IO (Either (PackageId, String) Database)
         maybeIndex pkg = runEitherT $ fmapLT (sourcePackageId pkg,)
