@@ -144,6 +144,9 @@ getTextBase cfg ipkg = do
                 tbPath = docRoot </> name++".txt"
             liftIO $ putStrLn $ "Installing textbase to "++tbPath
             liftIO $ BS.writeFile tbPath content
+          Nothing | installTextBase cfg -> do
+            liftIO $ putStrLn $ "Can't install textbase due to missing documentation directory"
+          _ -> return ()
         return tb
   where
     pkg = sourcePackageId ipkg
