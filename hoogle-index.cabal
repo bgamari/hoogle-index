@@ -5,8 +5,8 @@ description:         Easily generate Hoogle indices for installed packages
 homepage:            http://github.com/bgamari/hoogle-index
 license:             BSD3
 license-file:        LICENSE
-author:              Ben Gamari
-maintainer:          ben@smart-cactus.org
+author:              Ben Gamari <ben@smart-cactus.org>
+maintainer:          Ben Gamari <ben@smart-cactus.org>
 copyright:           (c) 2014 Ben Gamari
 category:            Documentation
 build-type:          Simple
