@@ -120,7 +120,7 @@ findTextBase ipkg = do
 buildTextBase :: PackageName -> PackageTree -> EitherT String IO TextBase
 buildTextBase (PackageName pkg) (PkgTree dir) = do
     callProcessIn dir "cabal" ["configure"]
-    callProcessIn dir "cabal " ["haddock", "--hoogle"]
+    callProcessIn dir "cabal" ["haddock", "--hoogle"]
     let path = dir </> "dist" </> "doc" </> "html" </> pkg </> (pkg++".txt")
     TextBase <$> liftIO (BS.readFile path)
 
