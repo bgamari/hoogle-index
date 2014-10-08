@@ -1,7 +1,15 @@
 name:                hoogle-index
 version:             0.3.0
 synopsis:            Easily generate Hoogle indices for installed packages
-description:         Easily generate Hoogle indices for installed packages
+description:
+    'hoogle-index' is a small utility for generating indicies for local
+    Hoogle installations.
+    .
+    > $ cabal install hoogle hoogle-index
+    > $ hoogle-index    # this will take a while
+    .
+    Your Hoogle index now covers all of the packages locally installed.
+
 homepage:            http://github.com/bgamari/hoogle-index
 license:             BSD3
 license-file:        LICENSE
