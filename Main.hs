@@ -144,12 +144,13 @@ getTextBase cfg ipkg = do
 
         -- install textbase if necessary
         case listToMaybe $ haddockHTMLs ipkg of
-          Just docRoot | installTextBase cfg -> do
+          Just docRoot | installTextBase cfg -> fmapLT show $ tryIO $ do
             let TextBase content = tb
                 PackageName name = pkgName $ sourcePackageId ipkg
                 tbPath = docRoot </> name++".txt"
-            liftIO $ putStrLn $ "Installing textbase to "++tbPath
-            liftIO $ BS.writeFile tbPath content
+            putStrLn $ "Installing textbase to "++tbPath
+            createDirectoryIfMissing True docRoot
+            BS.writeFile tbPath content
           Nothing | installTextBase cfg -> do
             liftIO $ putStrLn $ "Can't install textbase due to missing documentation directory"
           _ -> return ()
