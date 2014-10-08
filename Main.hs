@@ -180,8 +180,14 @@ convert tbf docRoot merge = do
 -- | Generate a Hoogle database for an installed package
 indexPackage :: Config -> InstalledPackageInfo -> EitherT String IO Database
 indexPackage cfg ipkg
+  | pkgName pkg `S.member` downloadPackages = do
+    tmpDir <- liftIO getTemporaryDirectory
+    callProcessE "hoogle" ["data", "--datadir="++tmpDir, name]
+    return $ DB $ tmpDir </> name++".hoo"
+
   | pkgName pkg `S.member` ignorePackages =
-    left "Can't build documentation for base"
+    left $ "Can't build documentation for "++name
+
   | otherwise = do
     tb <- getTextBase cfg ipkg
     docRoot <- case haddockHTMLs ipkg of
@@ -197,9 +203,12 @@ indexPackage cfg ipkg
     liftIO $ removeFile tbf
     return db
   where
+    downloadPackages = S.fromList $ map PackageName
+                       ["base"]
     ignorePackages = S.fromList $ map PackageName
-                     ["base", "rts", "ghc-prim", "integer-gmp"]
+                     ["rts", "ghc-prim", "integer-gmp"]
     pkg = sourcePackageId ipkg
+    PackageName name = pkgName pkg
 
 -- | Combine Hoogle databases
 combineDBs :: [Database] -> EitherT String IO Database
