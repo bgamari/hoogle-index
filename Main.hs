@@ -71,7 +71,11 @@ opts =
 newtype PackageTree = PkgTree FilePath
                     deriving (Show)
 
--- | Call a package from the given directory
+-- | Call a process
+callProcessE :: FilePath -> [String] -> EitherT String IO ()
+callProcessE exec args = fmapLT show $ tryIO $ callProcess exec args
+
+-- | Call a process from the given directory
 callProcessIn :: FilePath -> FilePath -> [String] -> EitherT String IO ()
 callProcessIn dir exec args = do
     let cp = (proc exec args) { cwd = Just dir }
@@ -198,8 +202,8 @@ indexPackage cfg ipkg
     pkg = sourcePackageId ipkg
 
 -- | Combine Hoogle databases
-combineDBs :: [Database] -> IO Database
-combineDBs dbs = do
+combineDBs :: [Database] -> EitherT String IO Database
+combineDBs dbs = fmapLT show $ tryIO $ do
     tmpDir <- getTemporaryDirectory
     (out, h) <- openTempFile tmpDir "combined.hoo"
     hClose h
@@ -255,7 +259,10 @@ main = do
       let failedMsg (pkgId, reason) = "  "++show (pkgName pkgId)++"\t"++reason
       putStrLn $ unlines $ map failedMsg failed
 
-    combined <- combineDBs idxs
+    combined <- runEitherT (combineDBs idxs)
+    case combined of
+      Left e -> putStrLn $ "Error while combining databases: "++e
+      Right db -> do
+        res <- runEitherT $ installDB compiler pkgIdx db
+        either print (const $ return ()) res
     mapM_ removeDB idxs
-    res <- runEitherT $ installDB compiler pkgIdx combined
-    either print (const $ return ()) res
