@@ -13,6 +13,8 @@ import System.Process
 import System.FilePath
 import System.IO
 
+import qualified Data.Set as S
+
 import Data.Either (partitionEithers)
 import Control.Error
 
@@ -173,8 +175,10 @@ convert tbf docRoot merge = do
 
 -- | Generate a Hoogle database for an installed package
 indexPackage :: Config -> InstalledPackageInfo -> EitherT String IO Database
-indexPackage cfg ipkg = do
-    let pkg = sourcePackageId ipkg
+indexPackage cfg ipkg
+  | pkgName pkg `S.member` ignorePackages =
+    left "Can't build documentation for base"
+  | otherwise = do
     tb <- getTextBase cfg ipkg
     docRoot <- case haddockHTMLs ipkg of
                    docRoot:_ | useLocalDocs cfg -> return $ Just docRoot
@@ -188,6 +192,10 @@ indexPackage cfg ipkg = do
     db <- convert tbf docRoot []
     liftIO $ removeFile tbf
     return db
+  where
+    ignorePackages = S.fromList $ map PackageName
+                     ["base", "rts", "ghc-prim", "integer-gmp"]
+    pkg = sourcePackageId ipkg
 
 -- | Combine Hoogle databases
 combineDBs :: [Database] -> IO Database
