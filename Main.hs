@@ -231,8 +231,15 @@ main = do
     pkgIdx <- getInstalledPackages (verbosity config) pkgDbs progCfg
     let pkgs = reverseTopologicalOrder pkgIdx
         maybeIndex :: InstalledPackageInfo -> IO (Either (PackageId, String) Database)
-        maybeIndex pkg = runEitherT $ fmapLT (sourcePackageId pkg,)
-                         $ indexPackage config pkg
+        maybeIndex pkg = do
+            putStrLn ""
+            result <- runEitherT $ indexPackage config pkg
+            case result of
+              Left e  -> do
+                let pkgId = sourcePackageId pkg
+                putStrLn $ "Error while indexing "++show (pkgName pkgId)++": "++e
+                return $ Left (pkgId, e)
+              Right r -> return $ Right r
     (failed, idxs) <- fmap partitionEithers $ mapM maybeIndex pkgs
 
     when (not $ null failed) $ do
