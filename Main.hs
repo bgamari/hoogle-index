@@ -258,7 +258,8 @@ main = do
             case result of
               Left e  -> do
                 let pkgId = sourcePackageId pkg
-                putStrLn $ "Error while indexing "++show (pkgName pkgId)++": "++e
+                    PackageName name = pkgName pkgId
+                putStrLn $ "Error while indexing "++name++": "++e
                 return $ Left (pkgId, e)
               Right r -> return $ Right r
     (failed, idxs) <- fmap partitionEithers $ mapM maybeIndex pkgs
