@@ -273,10 +273,10 @@ main = do
       let failedMsg (pkgId, reason) = "  "++show (pkgName pkgId)++"\t"++reason
       putStrLn $ unlines $ map failedMsg failed
 
-    combined <- runEitherT (combineDBs idxs)
-    case combined of
-      Left e -> putStrLn $ "Error while combining databases: "++e
-      Right db -> do
-        res <- runEitherT $ installDB compiler pkgIdx db
-        either print (const $ return ()) res
+    res <- runEitherT $ do
+        combined <- fmapLT ("Error while combining databases: "++)
+                    $ combineDBs idxs
+        installDB compiler pkgIdx combined
+    either putStrLn return res
+
     mapM_ removeDB idxs
