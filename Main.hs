@@ -143,10 +143,9 @@ getTextBase cfg ipkg = do
         liftIO $ removeTree pkgTree
 
         -- install textbase if necessary
-        case listToMaybe $ haddockHTMLs ipkg of
+        result <- runEitherT $ case listToMaybe $ haddockHTMLs ipkg of
           Just docRoot | installTextBase cfg -> fmapLT show $ tryIO $ do
             let TextBase content = tb
-                PackageName name = pkgName $ sourcePackageId ipkg
                 tbPath = docRoot </> name++".txt"
             putStrLn $ "Installing textbase to "++tbPath
             createDirectoryIfMissing True docRoot
@@ -154,9 +153,13 @@ getTextBase cfg ipkg = do
           Nothing | installTextBase cfg -> do
             liftIO $ putStrLn $ "Can't install textbase due to missing documentation directory"
           _ -> return ()
+        case result of
+          Left e  -> liftIO $ putStrLn $ name++": Failed to install textbase: "++e
+          Right _ -> return ()
         return tb
   where
     pkg = sourcePackageId ipkg
+    PackageName name = pkgName pkg
 
 -- | A Hoogle database
 newtype Database = DB FilePath
