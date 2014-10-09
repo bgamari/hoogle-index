@@ -39,6 +39,8 @@ At the moment `hoogle-index` is an unholy combination of using the `Cabal`
 library directly and invoking the `cabal-install` binary. This means that
 things will break if any of the following conditions do not hold,
 
+ * `hoogle` fails to parse some new constructs. This has been
+   [fixed upstream](https://github.com/ndmitchell/hoogle/pull/85).
  * `cabal-install` is compiled against the same `Cabal` version as `hoogle-index`
    (`cabal -V` will report the version that `cabal-install` is built against)
  * `haddock` be compiled against the GHC version currently in use
