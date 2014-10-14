@@ -210,7 +210,8 @@ indexPackage cfg ipkg
     downloadPackages = S.fromList $ map PackageName
                        ["base"]
     ignorePackages = S.fromList $ map PackageName
-                     ["rts", "ghc-prim", "integer-gmp"]
+                     [ "rts", "ghc-prim", "integer-gmp", "bin-package-db"
+                     , "ghc", "haskell98" "haskell2010"]
     pkg = sourcePackageId ipkg
     PackageName name = pkgName pkg
 
