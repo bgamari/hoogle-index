@@ -37,6 +37,8 @@ import Distribution.InstalledPackageInfo (InstalledPackageInfo_ (..), InstalledP
 import Distribution.Package (PackageId, PackageName (..), PackageIdentifier (..))
 import qualified Distribution.Simple.InstallDirs as IDirs
 
+import Hoogle (defaultDatabaseLocation)
+
 -- | Various configuration
 data Config = Config { verbosity               :: Verbosity
                      , installTextBase         :: Bool
@@ -225,19 +227,10 @@ combineDBs dbs = fmapLT show $ tryIO $ do
     return (DB out)
 
 -- | Install a database in Hoogle's database directory
-installDB :: Compiler -> PackageIndex -> Database -> EitherT String IO ()
-installDB compiler pkgIdx (DB db) = do
-    hooglePkg <- case sortBy (comparing fst) $ lookupPackageName pkgIdx (PackageName "hoogle") of
-                      (_, (pkg:_)):_ -> return pkg
-                      _              -> left "Hoogle not installed"
-    template <- liftIO $ IDirs.defaultInstallDirs (compilerFlavor compiler) True False
-    let installDirs = IDirs.absoluteInstallDirs (sourcePackageId hooglePkg)
-                                                (compilerId compiler)
-                                                IDirs.NoCopyDest
-                                                buildPlatform template
-
-    let dbDir = IDirs.datadir installDirs </> "databases"
-        dest = dbDir </> "default.hoo"
+installDB :: Database -> EitherT String IO ()
+installDB (DB db) = do
+    dbDir <- liftIO defaultDatabaseLocation
+    let dest = dbDir </> "default.hoo"
     liftIO $ copyFile db dest
     liftIO $ putStrLn $ "Installed Hoogle index to "++dest
 
@@ -277,7 +270,7 @@ main = do
     res <- runEitherT $ do
         combined <- fmapLT ("Error while combining databases: "++)
                     $ combineDBs idxs
-        installDB compiler pkgIdx combined
+        installDB combined
     either putStrLn return res
 
     mapM_ removeDB idxs
