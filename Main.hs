@@ -1,7 +1,8 @@
 {-# LANGUAGE TupleSections #-}
 
-import Control.Monad (forM, when)
+import Control.Monad (void, forM, when, forever)
 import Control.Monad.IO.Class
+import Control.Concurrent
 import Control.Applicative
 import Data.Version
 import Data.Maybe (listToMaybe)
@@ -74,25 +75,41 @@ newtype PackageTree = PkgTree FilePath
                     deriving (Show)
 
 -- | Call a process
-callProcessE :: FilePath -> [String] -> EitherT String IO ()
-callProcessE exec args = fmapLT show $ tryIO $ callProcess exec args
+callProcessE :: Config -> FilePath -> [String] -> EitherT String IO ()
+callProcessE ver = callProcessIn ver "."
 
 -- | Call a process from the given directory
-callProcessIn :: FilePath -> FilePath -> [String] -> EitherT String IO ()
-callProcessIn dir exec args = do
-    let cp = (proc exec args) { cwd = Just dir }
-    (_, _, _, ph) <- liftIO $ createProcess cp
+callProcessIn :: Config
+              -> FilePath    -- ^ directory
+              -> FilePath    -- ^ executable
+              -> [String]    -- ^ arguments
+              -> EitherT String IO ()
+callProcessIn cfg dir exec args = do
+    let ver = verbosity cfg
+        stream
+          | verbose < ver = CreatePipe
+          | otherwise     = Inherit
+    let cp = (proc exec args) { cwd = Just dir
+                              , std_err = stream
+                              , std_out = stream
+                              }
+    (_, hOut, hErr, ph) <- tryIO' $ createProcess cp
+
+    let handleStream (Just h) = liftIO $ void $ forkIO $ forever $ hGetLine h
+        handleStream Nothing  = return ()
+    handleStream hOut
+    handleStream hErr
     code <- liftIO $ waitForProcess ph
     case code of
       ExitSuccess -> return ()
       ExitFailure e -> left $ "Process "++exec++" failed with error "++show e
 
 -- | Unpack a package
-unpack :: PackageId -> EitherT String IO PackageTree
-unpack (PackageIdentifier (PackageName pkg) ver) = do
+unpack :: Config -> PackageId -> EitherT String IO PackageTree
+unpack cfg (PackageIdentifier (PackageName pkg) ver) = do
     tmpDir <- liftIO getTemporaryDirectory
     dir <- liftIO $ createTempDirectory tmpDir "hoogle-index.pkg"
-    callProcessIn dir "cabal" ["unpack", pkg++"=="++showVersion ver]
+    callProcessIn cfg dir "cabal" ["unpack", pkg++"=="++showVersion ver]
     return $ PkgTree $ dir </> pkg++"-"++showVersion ver
 
 -- | Remove an unpacked tree
@@ -104,8 +121,8 @@ removeTree (PkgTree dir) =
 newtype TextBase = TextBase BS.ByteString
 
 -- | Write a Haddock textbase to a file
-writeTextBase :: TextBase -> FilePath -> IO ()
-writeTextBase (TextBase content) path = BS.writeFile path content
+writeTextBase :: TextBase -> FilePath -> EitherT String IO ()
+writeTextBase (TextBase content) path = liftIO $ BS.writeFile path content
 
 -- | A file containing a Haddock textbase
 type TextBaseFile = FilePath
@@ -125,12 +142,27 @@ findTextBase ipkg = do
           else return Nothing
 
 -- | Build a textbase from source
-buildTextBase :: PackageName -> PackageTree -> EitherT String IO TextBase
-buildTextBase (PackageName pkg) (PkgTree dir) = do
-    callProcessIn dir "cabal" ["configure"]
-    callProcessIn dir "cabal" ["haddock", "--hoogle"]
+buildTextBase :: Config -> PackageName -> PackageTree -> EitherT String IO TextBase
+buildTextBase cfg (PackageName pkg) (PkgTree dir) = do
+    callProcessIn cfg dir "cabal" ["configure"]
+    callProcessIn cfg dir "cabal" ["haddock", "--hoogle"]
     let path = dir </> "dist" </> "doc" </> "html" </> pkg </> (pkg++".txt")
     TextBase <$> liftIO (BS.readFile path)
+
+placeTextBase :: Config -> InstalledPackageInfo -> TextBase -> EitherT String IO ()
+placeTextBase cfg ipkg tb
+  | Just docRoot <- listToMaybe $ haddockHTMLs ipkg = tryIO' $ do
+      let TextBase content = tb
+          tbPath = docRoot </> name++".txt"
+      when (verbosity cfg > verbose)
+          $ liftIO $ putStrLn $ "Installing textbase to "++tbPath
+      createDirectoryIfMissing True docRoot
+      BS.writeFile tbPath content
+  | otherwise =
+      liftIO $ putStrLn $ "Can't install textbase due to missing documentation directory"
+  where
+    pkg = sourcePackageId ipkg
+    PackageName name = pkgName pkg
 
 getTextBase :: Config -> InstalledPackageInfo -> EitherT String IO TextBase
 getTextBase cfg ipkg = do
@@ -140,24 +172,16 @@ getTextBase cfg ipkg = do
     case existing of
       Just path -> TextBase <$> liftIO (BS.readFile path)
       Nothing -> do
-        pkgTree <- unpack pkg
-        tb <- buildTextBase (pkgName pkg) pkgTree
+        pkgTree <- unpack cfg pkg
+        tb <- buildTextBase cfg (pkgName pkg) pkgTree
         liftIO $ removeTree pkgTree
 
-        -- install textbase if necessary
-        result <- runEitherT $ case listToMaybe $ haddockHTMLs ipkg of
-          Just docRoot | installTextBase cfg -> fmapLT show $ tryIO $ do
-            let TextBase content = tb
-                tbPath = docRoot </> name++".txt"
-            putStrLn $ "Installing textbase to "++tbPath
-            createDirectoryIfMissing True docRoot
-            BS.writeFile tbPath content
-          Nothing | installTextBase cfg -> do
-            liftIO $ putStrLn $ "Can't install textbase due to missing documentation directory"
-          _ -> return ()
-        case result of
-          Left e  -> liftIO $ putStrLn $ name++": Failed to install textbase: "++e
-          Right _ -> return ()
+        when (installTextBase cfg) $ do
+            -- It's not the end of the world if this fails
+            result <- liftIO $ runEitherT $ placeTextBase cfg ipkg tb
+            case result of
+              Left e  -> liftIO $ putStrLn $ name++": Failed to install textbase: "++e
+              Right _ -> return ()
         return tb
   where
     pkg = sourcePackageId ipkg
@@ -172,15 +196,18 @@ removeDB :: Database -> IO ()
 removeDB (DB path) = removeFile path
 
 -- | Convert a textbase to a Hoogle database
-convert :: TextBaseFile -> Maybe FilePath -> [Database] -> EitherT String IO Database
-convert tbf docRoot merge = do
+convert :: Config -> TextBaseFile
+        -> Maybe FilePath             -- ^ documentation root
+        -> [Database]
+        -> EitherT String IO Database
+convert cfg tbf docRoot merge = do
     let docRoot' = maybe [] (\d->["--haddock", "--doc="++d]) docRoot
     (tb,h) <- liftIO $ openTempFile "/tmp" "db.hoo"
     liftIO $ hClose h
     let args = ["convert", tbf, tb] ++ docRoot'
                ++ map (\(DB db)->"--merge="++db) merge
 
-    fmapLT show $ tryIO $ callProcess "hoogle" args
+    callProcessE cfg "hoogle" args
     return $ DB tb
 
 -- | Generate a Hoogle database for an installed package
@@ -188,7 +215,7 @@ indexPackage :: Config -> InstalledPackageInfo -> EitherT String IO Database
 indexPackage cfg ipkg
   | pkgName pkg `S.member` downloadPackages = do
     tmpDir <- liftIO getTemporaryDirectory
-    callProcessE "hoogle" ["data", "--datadir="++tmpDir, name]
+    callProcessE cfg "hoogle" ["data", "--datadir="++tmpDir, name]
     return $ DB $ tmpDir </> name++".hoo"
 
   | pkgName pkg `S.member` ignorePackages =
@@ -204,9 +231,9 @@ indexPackage cfg ipkg
                    _ -> return Nothing
     (tbf,h) <- liftIO $ openTempFile "/tmp" "textbase.txt"
     liftIO $ hClose h
-    liftIO $ writeTextBase tb tbf
-    db <- convert tbf docRoot []
-    liftIO $ removeFile tbf
+    writeTextBase tb tbf
+    db <- convert cfg tbf docRoot []
+    tryIO' $ removeFile tbf
     return db
   where
     downloadPackages = S.fromList $ map PackageName
@@ -218,12 +245,13 @@ indexPackage cfg ipkg
     PackageName name = pkgName pkg
 
 -- | Combine Hoogle databases
-combineDBs :: [Database] -> EitherT String IO Database
-combineDBs dbs = fmapLT show $ tryIO $ do
-    tmpDir <- getTemporaryDirectory
-    (out, h) <- openTempFile tmpDir "combined.hoo"
-    hClose h
-    callProcess "hoogle" (["combine", "--outfile="++out] ++ map (\(DB db)->db) dbs)
+combineDBs :: Config -> [Database] -> EitherT String IO Database
+combineDBs cfg dbs = do
+    tmpDir <- tryIO' $ getTemporaryDirectory
+    (out, h) <- tryIO' $ openTempFile tmpDir "combined.hoo"
+    tryIO' $ hClose h
+    let args = ["combine", "--outfile="++out] ++ map (\(DB db)->db) dbs
+    callProcessE cfg "hoogle" args
     return (DB out)
 
 -- | Install a database in Hoogle's database directory
@@ -236,23 +264,23 @@ installDB (DB db) = do
 
 main :: IO ()
 main = do
-    config <- execParser
+    cfg <- execParser
         $ info (helper <*> opts)
                ( fullDesc
               <> progDesc "Generate Hoogle indexes for locally install packages"
               <> header "hoogle-index - Painless local Hoogle indexing"
                )
 
-    (compiler, _, progCfg) <- configure (verbosity config)
+    (compiler, _, progCfg) <- configure (verbosity cfg)
                               Nothing Nothing
                               defaultProgramConfiguration
-    let pkgDbs = [GlobalPackageDB, UserPackageDB] ++ otherPackageDbs config
-    pkgIdx <- getInstalledPackages (verbosity config) pkgDbs progCfg
+    let pkgDbs = [GlobalPackageDB, UserPackageDB] ++ otherPackageDbs cfg
+    pkgIdx <- getInstalledPackages (verbosity cfg) pkgDbs progCfg
     let pkgs = reverseTopologicalOrder pkgIdx
         maybeIndex :: InstalledPackageInfo -> IO (Either (PackageId, String) Database)
         maybeIndex pkg = do
             putStrLn ""
-            result <- runEitherT $ indexPackage config pkg
+            result <- runEitherT $ indexPackage cfg pkg
             case result of
               Left e  -> do
                 let pkgId = sourcePackageId pkg
@@ -269,8 +297,11 @@ main = do
 
     res <- runEitherT $ do
         combined <- fmapLT ("Error while combining databases: "++)
-                    $ combineDBs idxs
+                    $ combineDBs cfg idxs
         installDB combined
     either putStrLn return res
 
     mapM_ removeDB idxs
+
+tryIO' :: IO a -> EitherT String IO a
+tryIO' = fmapLT show . tryIO
