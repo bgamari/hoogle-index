@@ -259,7 +259,7 @@ installDB :: Database -> EitherT String IO ()
 installDB (DB db) = do
     dbDir <- liftIO defaultDatabaseLocation
     tryIO' $ createDirectoryIfMissing True dbDir
-    let dest = dbDir </> "default.hoo"
+    let dest = dbDir </> "databases" </> "default.hoo"
     liftIO $ copyFile db dest
     liftIO $ putStrLn $ "Installed Hoogle index to "++dest
 
