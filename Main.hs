@@ -38,6 +38,9 @@ import Distribution.InstalledPackageInfo (InstalledPackageInfo_ (..), InstalledP
 import Distribution.Package (PackageId, PackageName (..), PackageIdentifier (..))
 import qualified Distribution.Simple.InstallDirs as IDirs
 
+import qualified Paths_hoogle_index
+import Data.Version
+
 import Hoogle (defaultDatabaseLocation)
 
 -- | Various configuration
@@ -270,6 +273,7 @@ main = do
                ( fullDesc
               <> progDesc "Generate Hoogle indexes for locally install packages"
               <> header "hoogle-index - Painless local Hoogle indexing"
+              <> footer ("hoogle-index version "++showVersion Paths_hoogle_index.version)
                )
 
     (compiler, _, progCfg) <- configure (verbosity cfg)
