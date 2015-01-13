@@ -68,7 +68,7 @@ opts =
                ( long "ignore-existing"
               <> help "Always regenerate textbases even if one already exists"
                )
-           <*> many (option (fmap SpecificPackageDB . pure)
+           <*> many (option (SpecificPackageDB <$> str)
                ( short 'f' <> long "package-db"
               <> help "Add an addition package database (e.g. a Cabal sandbox)"
                ))
