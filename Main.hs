@@ -261,8 +261,9 @@ combineDBs cfg dbs = do
 installDB :: Database -> EitherT String IO ()
 installDB (DB db) = do
     dbDir <- liftIO defaultDatabaseLocation
-    tryIO' $ createDirectoryIfMissing True dbDir
-    let dest = dbDir </> "databases" </> "default.hoo"
+    let destDir = dbDir </> "databases"
+    tryIO' $ createDirectoryIfMissing True destDir
+    let dest = destDir </> "default.hoo"
     liftIO $ copyFile db dest
     liftIO $ putStrLn $ "Installed Hoogle index to "++dest
 
