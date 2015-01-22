@@ -7,7 +7,7 @@ import Control.Applicative
 import Data.Version
 import Data.Maybe (listToMaybe)
 import Data.Ord (comparing)
-import Data.List (sortBy)
+import Data.List (sortBy,isPrefixOf)
 import System.Directory
 import System.Exit
 import System.Process
@@ -28,7 +28,7 @@ import Distribution.Verbosity (Verbosity, normal, verbose)
 import Distribution.Simple.Compiler (Compiler (compilerId), compilerFlavor)
 import Distribution.Simple.GHC
 import Distribution.Simple.Program (defaultProgramConfiguration)
-import Distribution.Simple.Compiler (PackageDB (..))
+import Distribution.Simple.Compiler (PackageDB (..), PackageDBStack)
 import Distribution.Simple.PackageIndex ( PackageIndex, lookupPackageName
                                         , reverseTopologicalOrder
                                         , searchByNameSubstring
@@ -258,9 +258,9 @@ combineDBs cfg dbs = do
     return (DB out)
 
 -- | Install a database in Hoogle's database directory
-installDB :: Database -> EitherT String IO ()
-installDB (DB db) = do
-    dbDir <- liftIO defaultDatabaseLocation
+installDB :: Database -> SandboxPath -> EitherT String IO ()
+installDB (DB db) sp = do
+    dbDir <- liftIO $ getDatabaseLocation sp
     let destDir = dbDir </> "databases"
     tryIO' $ createDirectoryIfMissing True destDir
     let dest = destDir </> "default.hoo"
@@ -280,7 +280,8 @@ main = do
     (compiler, _, progCfg) <- configure (verbosity cfg)
                               Nothing Nothing
                               defaultProgramConfiguration
-    let pkgDbs = [GlobalPackageDB, UserPackageDB] ++ otherPackageDbs cfg
+    sandboxDB <- getSandboxDB
+    let pkgDbs = getPackageDBs cfg sandboxDB
     pkgIdx <- getInstalledPackages (verbosity cfg) pkgDbs progCfg
     let pkgs = reverseTopologicalOrder pkgIdx
         maybeIndex :: InstalledPackageInfo -> IO (Either (PackageId, String) Database)
@@ -304,10 +305,40 @@ main = do
     res <- runEitherT $ do
         combined <- fmapLT ("Error while combining databases: "++)
                     $ combineDBs cfg idxs
-        installDB combined
+        installDB combined sandboxDB
     either putStrLn return res
 
     mapM_ removeDB idxs
 
 tryIO' :: IO a -> EitherT String IO a
 tryIO' = fmapLT show . tryIO
+
+
+------------------------- Sandbox management --------------------------
+
+-- | The sandbox package database location
+type SandboxPath = Maybe FilePath
+
+-- | The location of the Hoogle database
+getDatabaseLocation :: SandboxPath -> IO FilePath
+getDatabaseLocation Nothing = defaultDatabaseLocation
+getDatabaseLocation (Just path) = return $ (takeDirectory path) </> "hoogle"
+
+-- | Get the path to the sandbox database if any
+getSandboxDB :: IO SandboxPath
+getSandboxDB = do
+  dir <- getCurrentDirectory
+  let f = dir </> "cabal.sandbox.config"
+  ex <- doesFileExist f
+  if ex
+    then
+      (listToMaybe .
+       map (drop 2 . dropWhile (/= ':')) .
+       filter (isPrefixOf "package-db") .
+       lines) <$> readFile f
+    else return Nothing
+
+-- | Get the package database stack 
+getPackageDBs :: Config -> SandboxPath -> PackageDBStack
+getPackageDBs cfg Nothing   = [GlobalPackageDB, UserPackageDB] ++ otherPackageDbs cfg
+getPackageDBs cfg (Just sp) = [GlobalPackageDB, SpecificPackageDB sp] ++ otherPackageDbs cfg
