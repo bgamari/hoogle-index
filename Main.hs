@@ -5,6 +5,7 @@ import Control.Monad.IO.Class
 import Control.Concurrent
 import Control.Applicative
 import Data.Version
+import Data.Char (isSpace)
 import Data.Maybe (listToMaybe)
 import Data.Ord (comparing)
 import Data.List (sortBy,isPrefixOf)
@@ -49,7 +50,11 @@ data Config = Config { verbosity               :: Verbosity
                      , useLocalDocs            :: Bool
                      , ignoreExistingTextBases :: Bool
                      , otherPackageDbs         :: [PackageDB]
+                     , hoogleCall              :: Maybe HoogleCall
                      }
+
+-- | Calling Hoogle
+data HoogleCall = HoogleCall [String]
 
 opts =
     Config <$> flag normal verbose
@@ -72,6 +77,11 @@ opts =
                ( short 'f' <> long "package-db"
               <> help "Add an addition package database (e.g. a Cabal sandbox)"
                ))
+           <*> optional
+               ( subparser
+                 (command "hoogle" (info (HoogleCall <$> (some (argument str (metavar "ARGS...")))) (progDesc"Run Hoogle with proper sandboxing options")) 
+                 )
+               )
 
 -- | An unpacked Cabal project
 newtype PackageTree = PkgTree FilePath
@@ -276,39 +286,44 @@ main = do
               <> header "hoogle-index - Painless local Hoogle indexing"
               <> footer ("hoogle-index version "++showVersion Paths_hoogle_index.version)
                )
+    sandboxPath <- getSandboxPath
+    case hoogleCall cfg of
+      Nothing -> do
+        (compiler, _, progCfg) <- configure (verbosity cfg)
+                                  Nothing Nothing
+                                  defaultProgramConfiguration
+        let pkgDbs = getPackageDBs cfg sandboxPath
+        pkgIdx <- getInstalledPackages (verbosity cfg) pkgDbs progCfg
+        let pkgs = reverseTopologicalOrder pkgIdx
+            maybeIndex :: InstalledPackageInfo -> IO (Either (PackageId, String) Database)
+            maybeIndex pkg = do
+                putStrLn ""
+                result <- runEitherT $ indexPackage cfg pkg
+                case result of
+                  Left e  -> do
+                    let pkgId = sourcePackageId pkg
+                        PackageName name = pkgName pkgId
+                    putStrLn $ "Error while indexing "++name++": "++e
+                    return $ Left (pkgId, e)
+                  Right r -> return $ Right r
+        (failed, idxs) <- fmap partitionEithers $ mapM maybeIndex pkgs
 
-    (compiler, _, progCfg) <- configure (verbosity cfg)
-                              Nothing Nothing
-                              defaultProgramConfiguration
-    sandboxDB <- getSandboxDB
-    let pkgDbs = getPackageDBs cfg sandboxDB
-    pkgIdx <- getInstalledPackages (verbosity cfg) pkgDbs progCfg
-    let pkgs = reverseTopologicalOrder pkgIdx
-        maybeIndex :: InstalledPackageInfo -> IO (Either (PackageId, String) Database)
-        maybeIndex pkg = do
-            putStrLn ""
-            result <- runEitherT $ indexPackage cfg pkg
-            case result of
-              Left e  -> do
-                let pkgId = sourcePackageId pkg
-                    PackageName name = pkgName pkgId
-                putStrLn $ "Error while indexing "++name++": "++e
-                return $ Left (pkgId, e)
-              Right r -> return $ Right r
-    (failed, idxs) <- fmap partitionEithers $ mapM maybeIndex pkgs
+        when (not $ null failed) $ do
+          putStrLn "Failed to build the following indexes:"
+          let failedMsg (pkgId, reason) = "  "++show (pkgName pkgId)++"\t"++reason
+          putStrLn $ unlines $ map failedMsg failed
 
-    when (not $ null failed) $ do
-      putStrLn "Failed to build the following indexes:"
-      let failedMsg (pkgId, reason) = "  "++show (pkgName pkgId)++"\t"++reason
-      putStrLn $ unlines $ map failedMsg failed
+        res <- runEitherT $ do
+            combined <- fmapLT ("Error while combining databases: "++)
+                        $ combineDBs cfg idxs
+            installDB combined sandboxPath
+        either putStrLn return res
 
-    res <- runEitherT $ do
-        combined <- fmapLT ("Error while combining databases: "++)
-                    $ combineDBs cfg idxs
-        installDB combined sandboxDB
-    either putStrLn return res
-
-    mapM_ removeDB idxs
+        mapM_ removeDB idxs
+      Just (HoogleCall args) -> do
+        res <- runEitherT $
+                callProcessE cfg "hoogle" $ getHoogleArgs sandboxPath args
+        either putStrLn return res
 
 tryIO' :: IO a -> EitherT String IO a
 tryIO' = fmapLT show . tryIO
@@ -325,15 +340,15 @@ getDatabaseLocation Nothing = defaultDatabaseLocation
 getDatabaseLocation (Just path) = return $ (takeDirectory path) </> "hoogle"
 
 -- | Get the path to the sandbox database if any
-getSandboxDB :: IO SandboxPath
-getSandboxDB = do
+getSandboxPath :: IO SandboxPath
+getSandboxPath = do
   dir <- getCurrentDirectory
   let f = dir </> "cabal.sandbox.config"
   ex <- doesFileExist f
   if ex
     then
       (listToMaybe .
-       map (drop 2 . dropWhile (/= ':')) .
+       map (dropWhile isSpace . tail . dropWhile (/= ':')) .
        filter (isPrefixOf "package-db") .
        lines) <$> readFile f
     else return Nothing
@@ -342,3 +357,8 @@ getSandboxDB = do
 getPackageDBs :: Config -> SandboxPath -> PackageDBStack
 getPackageDBs cfg Nothing   = [GlobalPackageDB, UserPackageDB] ++ otherPackageDbs cfg
 getPackageDBs cfg (Just sp) = [GlobalPackageDB, SpecificPackageDB sp] ++ otherPackageDbs cfg
+
+-- | Get the Hoogle arguments, using the sandbox databases if any
+getHoogleArgs :: SandboxPath -> [String] -> [String]
+getHoogleArgs Nothing args = args
+getHoogleArgs (Just path) args = args ++ ["-d", (takeDirectory path) </> "hoogle" </> "databases"]
