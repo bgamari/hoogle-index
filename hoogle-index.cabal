@@ -1,5 +1,5 @@
 name:                hoogle-index
-version:             0.4.0
+version:             0.4.1
 synopsis:            Easily generate Hoogle indices for installed packages
 description:
     'hoogle-index' is a small utility for generating indicies for local
