@@ -79,7 +79,8 @@ opts =
                ))
            <*> optional
                ( subparser
-                 (command "hoogle" (info (HoogleCall <$> (some (argument str (metavar "ARGS...")))) (progDesc"Run Hoogle with proper sandboxing options")) 
+                 (command "hoogle" (info (HoogleCall <$> (some (argument str (metavar "ARGS..."))))
+                                         (progDesc"Run Hoogle with proper sandboxing options" <> noIntersperse))
                  )
                )
 
