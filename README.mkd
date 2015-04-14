@@ -30,6 +30,22 @@ With a textbase in hand we can convert this to a Hoogle database.
 After traversing all installed packages these individual databases are
 merged.
 
+## Sandbox support
+
+`hoogle-index` has basic support for cabal sandboxes. Simply run `hoogle-index`
+within the root directory of your sandbox and invoke `hoogle` using
+`hoogle-index`'s `hoogle` subcommand. For instance,
+
+```bash
+$ mkdir test
+$ cabal sandbox init
+$ cabal install acme-missiles
+$ hoogle-index -l
+$ hoogle-index hoogle launchMissiles
+Acme.Missiles launchMissiles :: IO ()
+Acme.Missiles.STM launchMissilesSTM :: STM ()
+```
+
 ## Caveats
 
 At the moment `hoogle-index` is an unholy combination of using the `Cabal`
@@ -40,7 +56,7 @@ things will break if any of the following conditions do not hold,
    [fixed upstream](https://github.com/ndmitchell/hoogle/pull/85).
  * `cabal-install` is compiled against the same `Cabal` version as `hoogle-index`
    (`cabal -V` will report the version that `cabal-install` is built against)
- * `haddock` be compiled against the GHC version currently in use
+ * `haddock` is compiled against the GHC version currently in use
 
 ## More resources
 
