@@ -5,7 +5,7 @@ Hoogle installations.
 
 ```bash
 $ cabal install hoogle hoogle-index
-$ hoogle-index    # this will take a couple of minutes
+$ hoogle-index -i -l   # this will take a couple of minutes
 $ hoogle server -l -p 9000
 $ firefox http://localhost:9000/
 ```
