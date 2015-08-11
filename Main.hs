@@ -89,7 +89,7 @@ newtype PackageTree = PkgTree FilePath
                     deriving (Show)
 
 -- | Call a process
-callProcessE :: Config -> FilePath -> [String] -> EitherT String IO ()
+callProcessE :: Config -> FilePath -> [String] -> ExceptT String IO ()
 callProcessE ver = callProcessIn ver "."
 
 -- | Call a process from the given directory
@@ -97,7 +97,7 @@ callProcessIn :: Config
               -> FilePath    -- ^ directory
               -> FilePath    -- ^ executable
               -> [String]    -- ^ arguments
-              -> EitherT String IO ()
+              -> ExceptT String IO ()
 callProcessIn cfg dir exec args = do
     let ver = verbosity cfg
         stream
@@ -116,10 +116,10 @@ callProcessIn cfg dir exec args = do
     code <- liftIO $ waitForProcess ph
     case code of
       ExitSuccess -> return ()
-      ExitFailure e -> left $ "Process "++exec++" failed with error "++show e
+      ExitFailure e -> throwE $ "Process "++exec++" failed with error "++show e
 
 -- | Unpack a package
-unpack :: Config -> PackageId -> EitherT String IO PackageTree
+unpack :: Config -> PackageId -> ExceptT String IO PackageTree
 unpack cfg (PackageIdentifier (PackageName pkg) ver) = do
     tmpDir <- liftIO getTemporaryDirectory
     dir <- liftIO $ createTempDirectory tmpDir "hoogle-index.pkg"
@@ -135,7 +135,7 @@ removeTree (PkgTree dir) =
 newtype TextBase = TextBase BS.ByteString
 
 -- | Write a Haddock textbase to a file
-writeTextBase :: TextBase -> FilePath -> EitherT String IO ()
+writeTextBase :: TextBase -> FilePath -> ExceptT String IO ()
 writeTextBase (TextBase content) path = liftIO $ BS.writeFile path content
 
 -- | A file containing a Haddock textbase
@@ -156,14 +156,14 @@ findTextBase ipkg = do
           else return Nothing
 
 -- | Build a textbase from source
-buildTextBase :: Config -> PackageName -> PackageTree -> EitherT String IO TextBase
+buildTextBase :: Config -> PackageName -> PackageTree -> ExceptT String IO TextBase
 buildTextBase cfg (PackageName pkg) (PkgTree dir) = do
     callProcessIn cfg dir "cabal" ["configure"]
     callProcessIn cfg dir "cabal" ["haddock", "--hoogle"]
     let path = dir </> "dist" </> "doc" </> "html" </> pkg </> (pkg++".txt")
     TextBase <$> liftIO (BS.readFile path)
 
-placeTextBase :: Config -> InstalledPackageInfo -> TextBase -> EitherT String IO ()
+placeTextBase :: Config -> InstalledPackageInfo -> TextBase -> ExceptT String IO ()
 placeTextBase cfg ipkg tb
   | Just docRoot <- listToMaybe $ haddockHTMLs ipkg = tryIO' $ do
       let TextBase content = tb
@@ -178,7 +178,7 @@ placeTextBase cfg ipkg tb
     pkg = sourcePackageId ipkg
     PackageName name = pkgName pkg
 
-getTextBase :: Config -> InstalledPackageInfo -> EitherT String IO TextBase
+getTextBase :: Config -> InstalledPackageInfo -> ExceptT String IO TextBase
 getTextBase cfg ipkg = do
     existing <- if ignoreExistingTextBases cfg
                   then return Nothing
@@ -192,7 +192,7 @@ getTextBase cfg ipkg = do
 
         when (installTextBase cfg) $ do
             -- It's not the end of the world if this fails
-            result <- liftIO $ runEitherT $ placeTextBase cfg ipkg tb
+            result <- liftIO $ runExceptT $ placeTextBase cfg ipkg tb
             case result of
               Left e  -> liftIO $ putStrLn $ name++": Failed to install textbase: "++e
               Right _ -> return ()
@@ -213,7 +213,7 @@ removeDB (DB path) = removeFile path
 convert :: Config -> TextBaseFile
         -> Maybe FilePath             -- ^ documentation root
         -> [Database]
-        -> EitherT String IO Database
+        -> ExceptT String IO Database
 convert cfg tbf docRoot merge = do
     let docRoot' = maybe [] (\d->["--haddock", "--doc="++d]) docRoot
     (tb,h) <- liftIO $ openTempFile "/tmp" "db.hoo"
@@ -225,7 +225,7 @@ convert cfg tbf docRoot merge = do
     return $ DB tb
 
 -- | Generate a Hoogle database for an installed package
-indexPackage :: Config -> InstalledPackageInfo -> EitherT String IO Database
+indexPackage :: Config -> InstalledPackageInfo -> ExceptT String IO Database
 indexPackage cfg ipkg
   | pkgName pkg `S.member` downloadPackages = do
     tmpDir <- liftIO getTemporaryDirectory
@@ -233,7 +233,7 @@ indexPackage cfg ipkg
     return $ DB $ tmpDir </> name++".hoo"
 
   | pkgName pkg `S.member` ignorePackages =
-    left $ "Can't build documentation for "++name
+    throwE $ "Can't build documentation for "++name
 
   | otherwise = do
     tb <- getTextBase cfg ipkg
@@ -259,7 +259,7 @@ indexPackage cfg ipkg
     PackageName name = pkgName pkg
 
 -- | Combine Hoogle databases
-combineDBs :: Config -> [Database] -> EitherT String IO Database
+combineDBs :: Config -> [Database] -> ExceptT String IO Database
 combineDBs cfg dbs = do
     tmpDir <- tryIO' $ getTemporaryDirectory
     (out, h) <- tryIO' $ openTempFile tmpDir "combined.hoo"
@@ -269,7 +269,7 @@ combineDBs cfg dbs = do
     return (DB out)
 
 -- | Install a database in Hoogle's database directory
-installDB :: Database -> SandboxPath -> EitherT String IO ()
+installDB :: Database -> SandboxPath -> ExceptT String IO ()
 installDB (DB db) sp = do
     dbDir <- liftIO $ getDatabaseLocation sp
     let destDir = dbDir </> "databases"
@@ -299,7 +299,7 @@ main = do
             maybeIndex :: InstalledPackageInfo -> IO (Either (PackageId, String) Database)
             maybeIndex pkg = do
                 putStrLn ""
-                result <- runEitherT $ indexPackage cfg pkg
+                result <- runExceptT $ indexPackage cfg pkg
                 case result of
                   Left e  -> do
                     let pkgId = sourcePackageId pkg
@@ -314,7 +314,7 @@ main = do
           let failedMsg (pkgId, reason) = "  "++show (pkgName pkgId)++"\t"++reason
           putStrLn $ unlines $ map failedMsg failed
 
-        res <- runEitherT $ do
+        res <- runExceptT $ do
             combined <- fmapLT ("Error while combining databases: "++)
                         $ combineDBs cfg idxs
             installDB combined sandboxPath
@@ -322,11 +322,11 @@ main = do
 
         mapM_ removeDB idxs
       Just (HoogleCall args) -> do
-        res <- runEitherT $
+        res <- runExceptT $
                 callProcessE cfg "hoogle" $ getHoogleArgs sandboxPath args
         either putStrLn return res
 
-tryIO' :: IO a -> EitherT String IO a
+tryIO' :: IO a -> ExceptT String IO a
 tryIO' = fmapLT show . tryIO
 
 
